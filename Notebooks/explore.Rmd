@@ -1,12 +1,33 @@
 ---
-title: "R Notebook"
+title: "BRL-USD Exchange Rate Exploration"
+author: "M Daniel A Turse"
+date: "2022-02-04"
 output:
   html_document:
-    df_print: paged
+    toc: yes
+    toc_float:
+      toc_collapsed: yes
+    toc_depth: 3
+    number_sections: yes
+    theme: lumen
+  word_document:
+    toc: yes
+    toc_depth: '3'
 ---
 
 
 # Setup
+
+
+```{r}
+
+renv::snapshot(
+  prompt = FALSE
+)
+
+```
+
+
 
 ```{r}
 
@@ -98,6 +119,7 @@ knitr::kable(
   digits = c(2, 0, 0),
   format.args = list(big.mark = ",")
 )
+
 glimpse(price_scenarios)
 
 ```
@@ -144,11 +166,12 @@ price_scenarios %>%
 
 ```
 
+
 ```{r}
 
 price_scenarios %>% 
   dplyr::filter(
-    price_in_reais == 620000
+    price_in_reais == 630000
   ) %>% 
   knitr::kable(
     format = "html",
@@ -279,12 +302,12 @@ skimr::skim(max_min_exchange)
 
 ```{r}
 
-max_min_exchange %>% 
-  dplyr::mutate(
-    year = factor(lubridate::floor_date(x = date, unit = "year"))
-  ) %>% 
-  dplyr::group_by(year) %>% 
-  skimr::skim()
+# max_min_exchange %>% 
+#   dplyr::mutate(
+#     year = factor(lubridate::floor_date(x = date, unit = "year"))
+#   ) %>% 
+#   dplyr::group_by(year) %>% 
+#   skimr::skim()
 
 ```
 
@@ -408,6 +431,7 @@ plotly::ggplotly(p)
 add_rolls <-
   max_min_exchange %>% 
   dplyr::mutate(
+    # 1 week
     close_roll_mean_005 = RcppRoll::roll_mean(x = close,
                                               n = 5,
                                               partial = FALSE,
@@ -415,6 +439,7 @@ add_rolls <-
                                               align = "right",
                                               na.rm = TRUE
                                               ),
+    # 2 weeks
     close_roll_mean_010 = RcppRoll::roll_mean(x = close,
                                               n = 10,
                                               partial = FALSE,
@@ -422,6 +447,7 @@ add_rolls <-
                                               align = "right",
                                               na.rm = TRUE
                                               ),
+    # 4 weeks
     close_roll_mean_020 = RcppRoll::roll_mean(x = close,
                                               n = 20,
                                               partial = FALSE,
@@ -429,6 +455,7 @@ add_rolls <-
                                               align = "right",
                                               na.rm = TRUE
                                               ),
+    # 8 weeks
     close_roll_mean_040 = RcppRoll::roll_mean(x = close,
                                               n = 40,
                                               partial = FALSE,
@@ -436,6 +463,7 @@ add_rolls <-
                                               align = "right",
                                               na.rm = TRUE
                                               ),
+    # 16 weeks
     close_roll_mean_080 = RcppRoll::roll_mean(x = close,
                                               n = 80,
                                               partial = FALSE,
@@ -443,6 +471,7 @@ add_rolls <-
                                               align = "right",
                                               na.rm = TRUE
                                               ),
+    # 32 weeks
     close_roll_mean_160 = RcppRoll::roll_mean(x = close,
                                               n = 160,
                                               partial = FALSE,
