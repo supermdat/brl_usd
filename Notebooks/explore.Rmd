@@ -1,0 +1,502 @@
+---
+title: "R Notebook"
+output:
+  html_document:
+    df_print: paged
+---
+
+
+# Setup
+
+```{r}
+
+rm(list = ls())
+
+
+wd <- here::here()
+wd
+
+```
+
+
+```{r}
+
+library(tidyverse)
+# library(tidymodels)
+# library(tidytext)
+
+```
+
+
+```{r}
+
+# set the plotting theme to `theme_minimal`
+ggplot2::theme_set(ggplot2::theme_minimal())
+
+# set print options
+options(max.print = 100000)   # set the number of lines to print
+options(scipen = 999)         # digits longer than this will be converted to scientific notation
+
+```
+
+
+# Get Data on BRL per 1 USD
+
+```{r}
+
+url <- "https://query1.finance.yahoo.com/v7/finance/download/BRL=X?period1=1070150400&period2=1642809600&interval=1d&events=history&includeAdjustedClose=true"
+
+
+brl_usd <-
+  readr::read_csv(
+    file = url,
+    col_types = readr::cols(
+      Date = col_date(format = ""),
+      Open = col_double(),
+      High = col_double(),
+      Low = col_double(),
+      Close = col_double(),
+      `Adj Close` = col_double(),
+      Volume = col_double()
+      ),
+    na = c("", "NA", "null")
+  ) %>% 
+  janitor::clean_names() %>% 
+  dplyr::arrange(date)
+
+dplyr::glimpse(brl_usd)
+
+
+rm(url)
+
+```
+
+# Viz
+
+## Price Scenarios
+
+```{r}
+
+reais_per_dollar <- seq(from = 4.5, to = 6.5, by = 0.05)
+price_in_reais <- seq(from = 600000, to = 670000, by = 1000)
+
+price_scenarios <-
+  purrr::cross_df(
+    list(
+      reais_per_dollar = reais_per_dollar, 
+      price_in_reais = price_in_reais
+    )
+  ) %>% 
+  mutate(
+    price_in_dollars = price_in_reais / reais_per_dollar
+  )
+
+
+knitr::kable(
+  head(price_scenarios, 100),
+  format = "html",
+  digits = c(2, 0, 0),
+  format.args = list(big.mark = ",")
+)
+glimpse(price_scenarios)
+
+```
+
+
+```{r}
+
+plot_line.price_scenarios <-
+  price_scenarios %>% 
+  dplyr::mutate(
+    reais_per_dollar = factor(reais_per_dollar)
+  ) %>% 
+  ggplot2::ggplot(
+    ggplot2::aes(
+      x = price_in_reais,
+      y = price_in_dollars,
+      color = reais_per_dollar
+    )
+  ) +
+  ggplot2::geom_line() +
+  ggplot2::scale_x_continuous(
+    label = scales::comma
+  ) +
+  ggplot2::scale_y_continuous(
+    label = scales::comma
+  ) +
+  NULL
+
+plotly::ggplotly(plot_line.price_scenarios)
+
+```
+
+```{r}
+
+price_scenarios %>% 
+  dplyr::filter(
+    price_in_reais == 650000
+  ) %>% 
+  knitr::kable(
+    format = "html",
+    digits = c(2, 0, 0),
+    format.args = list(big.mark = ",")
+  )
+
+```
+
+```{r}
+
+price_scenarios %>% 
+  dplyr::filter(
+    price_in_reais == 620000
+  ) %>% 
+  knitr::kable(
+    format = "html",
+    digits = c(2, 0, 0),
+    format.args = list(big.mark = ",")
+  )
+
+```
+
+
+## Exchange Over Time
+```{r}
+
+exchange_over_time <-
+  brl_usd %>% 
+  ggplot2::ggplot(
+    ggplot2::aes(
+      x = date,
+      y = close
+    )
+  ) +
+  ggplot2::geom_line(
+    na.rm = TRUE
+  ) +
+  # ggplot2::geom_vline(
+  #   xintercept = lubridate::as_date("2021-01-01")
+  # ) +
+  NULL
+
+plotly::ggplotly(exchange_over_time)
+
+```
+
+## Close, Min, Max with 30-Day Windows
+
+```{r}
+
+# future_exchanges <-
+#   brl_usd %>% 
+#   dplyr::select(
+#     date,
+#     close
+#   ) %>% 
+#   dplyr::mutate(
+#     highest_future = cummax(close),
+#     lowest_future = cummin(close),
+#     highest_future30 = dplyr::lag(x = highest_future, n = 30),
+#     lowest_future30 = dplyr::lag(x = lowest_future, n = 30)
+#   )
+# 
+# dplyr::glimpse(future_exchanges)
+
+```
+
+```{r}
+
+to_join <-
+  brl_usd %>% 
+  dplyr::select(
+    date,
+    close
+  ) %>% 
+  dplyr::mutate(
+    to_delete = "a"
+  )
+
+self_joined <-
+  to_join %>% 
+  dplyr::inner_join(
+    y = to_join,
+    by = "to_delete",
+    suffix = c("", "_future")
+  ) %>% 
+  dplyr::filter(
+    date_future > date - 30 &
+      date_future < date + 30
+  ) %>% 
+  dplyr::select(
+    -to_delete
+  ) %>% 
+  dplyr::arrange(
+    date,
+    date_future
+  )
+
+dplyr::glimpse(self_joined)
+
+```
+
+
+```{r}
+
+max_min_exchange <-
+  self_joined %>% 
+  dplyr::group_by(
+    date
+  ) %>% 
+  dplyr::summarise(
+    close_max = max(close_future),
+    close_min = min(close_future)
+  ) %>% 
+  dplyr::ungroup() %>% 
+  dplyr::select(
+    -tidyselect::contains("_future")
+  ) %>% 
+  left_join(
+    y = to_join %>% dplyr::select(-to_delete),
+    by = "date"
+  ) %>% 
+  dplyr::mutate(
+    diff_close_to_max = close - close_max,
+    diff_close_to_min = close - close_min,
+    diff_max_to_min = close_max - close_min
+  ) %>% 
+  dplyr::arrange(
+    date
+  )
+
+dplyr::glimpse(max_min_exchange)
+
+```
+
+```{r}
+
+skimr::skim(max_min_exchange)
+
+```
+
+```{r}
+
+max_min_exchange %>% 
+  dplyr::mutate(
+    year = factor(lubridate::floor_date(x = date, unit = "year"))
+  ) %>% 
+  dplyr::group_by(year) %>% 
+  skimr::skim()
+
+```
+
+
+```{r}
+
+# test <-
+#   brl_usd %>% 
+#   dplyr::select(
+#     date,
+#     close
+#   ) %>% 
+#   dplyr::mutate(
+#     close_max = dplyr::lag(x = cummax(close), n = 30)
+#   )
+# 
+# glimpse(test)
+
+```
+
+
+```{r}
+
+p <-
+  max_min_exchange %>% 
+  tidyr::pivot_longer(
+    cols = close_max:close,
+    names_to = "type",
+    values_to = "value"
+  ) %>% 
+  ggplot2::ggplot(
+    ggplot2::aes(
+      x = date,
+      y = value,
+      color = type
+    )
+  ) +
+  ggplot2::geom_line(
+    na.rm = TRUE
+  ) +
+  ggplot2::scale_color_manual(
+    values = c("black", "green", "red")
+  ) +
+  ggplot2::labs(
+    x = "data",
+    y = "BRL  por  1  USD"
+  ) +
+  NULL
+
+# p
+plotly::ggplotly(p)
+
+```
+
+## Diff Min to Max
+
+```{r}
+
+p <-
+  max_min_exchange %>% 
+  tidyr::pivot_longer(
+    cols = tidyselect::contains("diff_"),
+    names_to = "type",
+    values_to = "value"
+  ) %>% 
+  ggplot2::ggplot(
+    ggplot2::aes(
+      x = date,
+      y = value,
+      color = type
+    )
+  ) +
+  ggplot2::geom_line(
+    na.rm = TRUE
+  ) +
+  # ggplot2::scale_color_manual(
+  #   values = c("black", "green", "red")
+  # ) +
+  # ggplot2::labs(
+  #   x = "data",
+  #   y = "BRL  por  1  USD"
+  # ) +
+  ggplot2::facet_wrap(
+    facets = vars(type),
+    scales = "free",
+    ncol = 1
+  ) +
+  ggplot2::theme(
+    legend.position = "none"
+  ) +
+  NULL
+
+# p
+plotly::ggplotly(p)
+
+```
+
+```{r}
+
+p <-
+  max_min_exchange %>% 
+  ggplot2::ggplot(
+    ggplot2::aes(
+      x = date,
+      y = diff_max_to_min
+    )
+  ) +
+  ggplot2::geom_line(
+    na.rm = TRUE
+  ) +
+  NULL
+
+plotly::ggplotly(p)
+
+```
+
+# Add Rolling Calcs
+
+```{r}
+
+add_rolls <-
+  max_min_exchange %>% 
+  dplyr::mutate(
+    close_roll_mean_005 = RcppRoll::roll_mean(x = close,
+                                              n = 5,
+                                              partial = FALSE,
+                                              fill = NA,
+                                              align = "right",
+                                              na.rm = TRUE
+                                              ),
+    close_roll_mean_010 = RcppRoll::roll_mean(x = close,
+                                              n = 10,
+                                              partial = FALSE,
+                                              fill = NA,
+                                              align = "right",
+                                              na.rm = TRUE
+                                              ),
+    close_roll_mean_020 = RcppRoll::roll_mean(x = close,
+                                              n = 20,
+                                              partial = FALSE,
+                                              fill = NA,
+                                              align = "right",
+                                              na.rm = TRUE
+                                              ),
+    close_roll_mean_040 = RcppRoll::roll_mean(x = close,
+                                              n = 40,
+                                              partial = FALSE,
+                                              fill = NA,
+                                              align = "right",
+                                              na.rm = TRUE
+                                              ),
+    close_roll_mean_080 = RcppRoll::roll_mean(x = close,
+                                              n = 80,
+                                              partial = FALSE,
+                                              fill = NA,
+                                              align = "right",
+                                              na.rm = TRUE
+                                              ),
+    close_roll_mean_160 = RcppRoll::roll_mean(x = close,
+                                              n = 160,
+                                              partial = FALSE,
+                                              fill = NA,
+                                              align = "right",
+                                              na.rm = TRUE
+                                              )
+  )
+
+dplyr::glimpse(add_rolls)
+
+```
+
+## Viz
+
+```{r}
+
+long_df <-
+  add_rolls %>% 
+  tidyr::pivot_longer(
+    cols = -date,
+    names_to = "type",
+    values_to = "value"
+  ) %>% 
+  dplyr::filter(
+    type == "close" |
+      stringr::str_detect(string = type,
+                          pattern = "roll_mean"
+                          )
+  )
+
+dplyr::glimpse(long_df)
+
+```
+
+
+```{r}
+
+p <-
+  long_df %>% 
+  ggplot2::ggplot(
+    ggplot2::aes(
+      x = date,
+      y = value,
+      color = type
+    )
+  ) +
+  ggplot2::geom_line(
+    na.rm = TRUE
+  ) +
+  NULL
+
+plotly::ggplotly(p)
+
+```
+
+
