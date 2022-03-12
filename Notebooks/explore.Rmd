@@ -1,7 +1,7 @@
 ---
 title: "BRL-USD Exchange Rate Exploration"
 author: "M Daniel A Turse"
-date: "2022-02-04"
+date: "`r base::Sys.Date()`"
 output:
   html_document:
     toc: yes
@@ -63,9 +63,23 @@ options(scipen = 999)         # digits longer than this will be converted to sci
 
 # Get Data on BRL per 1 USD
 
+
+
+
+
 ```{r}
 
-url <- "https://query1.finance.yahoo.com/v7/finance/download/BRL=X?period1=1070150400&period2=1642809600&interval=1d&events=history&includeAdjustedClose=true"
+period_two_date <-
+  lubridate::now(tzone = "GMT") %>% 
+  lubridate::floor_date(unit = "day") %>% 
+  as.numeric()
+
+url_prefix <- "https://query1.finance.yahoo.com/v7/finance/download/BRL=X?period1=1070150400&period2="
+
+url_suffix <- "&interval=1d&events=history&includeAdjustedClose=true"
+
+
+url <- paste0(url_prefix, period_two_date, url_suffix)
 
 
 brl_usd <-
@@ -83,14 +97,24 @@ brl_usd <-
     na = c("", "NA", "null")
   ) %>% 
   janitor::clean_names() %>% 
+  dplyr::mutate(
+    dt_wk_start = lubridate::floor_date(x = date, unit = "weeks")
+  ) %>% 
   dplyr::arrange(date)
 
 dplyr::glimpse(brl_usd)
 
 
-rm(url)
+rm(period_two_date, url_prefix, url_suffix, url)
 
 ```
+
+```{r}
+
+skimr::skim(brl_usd)
+
+```
+
 
 # Viz
 
@@ -205,7 +229,9 @@ plotly::ggplotly(exchange_over_time)
 
 ```
 
-## Close, Min, Max with 30-Day Windows
+## 30 Day Window
+
+### Close, Min, Max with 30-Day Windows
 
 ```{r}
 
@@ -362,7 +388,7 @@ plotly::ggplotly(p)
 
 ```
 
-## Diff Min to Max
+### Diff Min to Max
 
 ```{r}
 
@@ -397,6 +423,281 @@ p <-
   ) +
   ggplot2::theme(
     legend.position = "none"
+  ) +
+  NULL
+
+# p
+plotly::ggplotly(p)
+
+```
+
+```{r}
+
+p <-
+  max_min_exchange %>% 
+  ggplot2::ggplot(
+    ggplot2::aes(
+      x = date,
+      y = diff_max_to_min
+    )
+  ) +
+  ggplot2::geom_line(
+    na.rm = TRUE
+  ) +
+  NULL
+
+plotly::ggplotly(p)
+
+```
+
+## 7 Day Window
+
+### Close, Min, Max with 1 Week Window
+
+```{r}
+
+# future_exchanges <-
+#   brl_usd %>% 
+#   dplyr::select(
+#     date,
+#     close
+#   ) %>% 
+#   dplyr::mutate(
+#     highest_future = cummax(close),
+#     lowest_future = cummin(close),
+#     highest_future30 = dplyr::lag(x = highest_future, n = 30),
+#     lowest_future30 = dplyr::lag(x = lowest_future, n = 30)
+#   )
+# 
+# dplyr::glimpse(future_exchanges)
+
+```
+
+```{r}
+
+to_join <-
+  brl_usd %>% 
+  dplyr::select(
+    date,
+    dt_wk_start,
+    close
+  ) %>% 
+  dplyr::mutate(
+    to_delete = "a"
+  )
+
+self_joined <-
+  to_join %>% 
+  dplyr::inner_join(
+    y = to_join,
+    by = "to_delete",
+    suffix = c("", "_future")
+  ) %>% 
+  dplyr::filter(
+    date_future >= date &
+      date_future <= (dt_wk_start + 5)
+  ) %>% 
+  dplyr::select(
+    -to_delete,
+    -dt_wk_start_future
+  ) %>% 
+  dplyr::group_by(
+    date
+  ) %>% 
+  dplyr::mutate(
+    day_cnts = dplyr::n()
+  ) %>% 
+  dplyr::ungroup() %>% 
+  dplyr::arrange(
+    date,
+    date_future
+  )
+
+dplyr::glimpse(self_joined)
+
+```
+
+
+```{r}
+
+max_min_exchange <-
+  self_joined %>% 
+  dplyr::filter(
+    day_cnts > 1
+  ) %>% 
+  dplyr::group_by(
+    date
+  ) %>% 
+  dplyr::summarise(
+    close_max = max(close_future),
+    close_min = min(close_future)
+  ) %>% 
+  dplyr::ungroup() %>% 
+  dplyr::select(
+    -tidyselect::contains("_future")
+  ) %>% 
+  left_join(
+    y = to_join %>% dplyr::select(-to_delete, -dt_wk_start),
+    by = "date"
+  ) %>% 
+  dplyr::mutate(
+    diff_max_to_close = close_max - close,
+    diff_min_to_close = close_min - close,
+    diff_max_to_min = close_max - close_min
+  ) %>% 
+  dplyr::arrange(
+    date
+  )
+
+dplyr::glimpse(max_min_exchange)
+
+```
+
+```{r}
+
+skimr::skim(max_min_exchange)
+
+```
+
+```{r}
+
+# max_min_exchange %>% 
+#   dplyr::mutate(
+#     year = factor(lubridate::floor_date(x = date, unit = "year"))
+#   ) %>% 
+#   dplyr::group_by(year) %>% 
+#   skimr::skim()
+
+```
+
+
+```{r}
+
+# test <-
+#   brl_usd %>% 
+#   dplyr::select(
+#     date,
+#     close
+#   ) %>% 
+#   dplyr::mutate(
+#     close_max = dplyr::lag(x = cummax(close), n = 30)
+#   )
+# 
+# glimpse(test)
+
+```
+
+
+```{r}
+
+p <-
+  max_min_exchange %>% 
+  tidyr::pivot_longer(
+    cols = close_max:close,
+    names_to = "type",
+    values_to = "value"
+  ) %>% 
+  ggplot2::ggplot(
+    ggplot2::aes(
+      x = date,
+      y = value,
+      color = type
+    )
+  ) +
+  ggplot2::geom_line(
+    na.rm = TRUE
+  ) +
+  ggplot2::scale_color_manual(
+    values = c("black", "green", "red")
+  ) +
+  ggplot2::labs(
+    x = "data",
+    y = "BRL  por  1  USD"
+  ) +
+  NULL
+
+# p
+plotly::ggplotly(p)
+
+```
+
+### Diff Min to Max
+
+```{r}
+
+p <-
+  max_min_exchange %>% 
+  tidyr::pivot_longer(
+    cols = tidyselect::contains("diff_"),
+    names_to = "type",
+    values_to = "value"
+  ) %>% 
+  ggplot2::ggplot(
+    ggplot2::aes(
+      x = date,
+      y = value,
+      color = type
+    )
+  ) +
+  ggplot2::geom_line(
+    na.rm = TRUE
+  ) +
+  # ggplot2::scale_color_manual(
+  #   values = c("black", "green", "red")
+  # ) +
+  # ggplot2::labs(
+  #   x = "data",
+  #   y = "BRL  por  1  USD"
+  # ) +
+  ggplot2::facet_wrap(
+    facets = vars(type),
+    scales = "free",
+    ncol = 1
+  ) +
+  ggplot2::theme(
+    legend.position = "none"
+  ) +
+  NULL
+
+# p
+plotly::ggplotly(p)
+
+```
+
+
+```{r}
+
+p <-
+  max_min_exchange %>% 
+  tidyr::pivot_longer(
+    cols = tidyselect::contains("_to_close"),
+    names_to = "type",
+    values_to = "value"
+  ) %>% 
+  ggplot2::ggplot(
+    ggplot2::aes(
+      x = date,
+      y = value,
+      color = type
+    )
+  ) +
+  ggplot2::geom_line(
+    na.rm = TRUE
+  ) +
+  # ggplot2::scale_color_manual(
+  #   values = c("black", "green", "red")
+  # ) +
+  # ggplot2::labs(
+  #   x = "data",
+  #   y = "BRL  por  1  USD"
+  # ) +
+  # ggplot2::facet_wrap(
+  #   facets = vars(type),
+  #   scales = "free",
+  #   ncol = 1
+  # ) +
+  ggplot2::theme(
+    legend.position = "bottom"
   ) +
   NULL
 
